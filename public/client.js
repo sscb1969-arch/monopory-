@@ -1,80 +1,46 @@
-const express = require('express');
-const app = express();
-const http = require('http').createServer(app);
-const io = require('socket.io')(http);
+const socket = io();
 
-app.use(express.static('public'));
-
-function generateBoard() {
-  return [
-    { type: 'start', name: 'スタート' },
-    { type: 'property', name: '公園', price: 100, fee: 20 },
-    { type: 'event', name: 'ラッキー！ +100', amount: 100 },
-    { type: 'property', name: '図書館', price: 120, fee: 30 },
-    { type: 'event', name: 'アンラッキー… -50', amount: -50 },
-    { type: 'property', name: '体育館', price: 150, fee: 40 },
-    { type: 'event', name: '移動 +2', move: 2 },
-    { type: 'property', name: '食堂', price: 200, fee: 50 },
-  ];
+function joinGame() {
+  const roomId = document.getElementById('room').value;
+  const name = document.getElementById('name').value;
+  socket.emit('joinRoom', roomId, name);
 }
 
-let rooms = {};
-
-io.on('connection', (socket) => {
-  socket.on('joinRoom', (roomId, playerName) => {
-    if (!rooms[roomId]) {
-      rooms[roomId] = {
-        players: [],
-        turn: 0,
-        board: generateBoard(),
-      };
-    }
-
-    rooms[roomId].players.push({
-      id: socket.id,
-      name: playerName,
-      pos: 0,
-      money: 1000,
-      properties: []
-    });
-
-    socket.join(roomId);
-    io.to(roomId).emit('stateUpdate', rooms[roomId]);
-  });
-
-  socket.on('rollDice', (roomId) => {
-    const room = rooms[roomId];
-    const dice = Math.floor(Math.random() * 6) + 1;
-
-    const player = room.players[room.turn];
-    player.pos = (player.pos + dice) % room.board.length;
-
-    const tile = room.board[player.pos];
-    handleTile(player, tile);
-
-    room.turn = (room.turn + 1) % room.players.length;
-
-    io.to(roomId).emit('stateUpdate', room);
-  });
+socket.on('stateUpdate', (state) => {
+  renderBoard(state.board);
+  renderPlayers(state.players, state.turn);
 });
 
-function handleTile(player, tile) {
-  if (tile.type === 'event') {
-    if (tile.amount) player.money += tile.amount;
-    if (tile.move) player.pos += tile.move;
-  }
-
-  if (tile.type === 'property') {
-    if (!tile.owner) {
-      if (player.money >= tile.price) {
-        tile.owner = player.id;
-        player.money -= tile.price;
-        player.properties.push(tile.name);
-      }
-    } else if (tile.owner !== player.id) {
-      player.money -= tile.fee;
-    }
-  }
+function rollDice() {
+  const roomId = document.getElementById('room').value;
+  socket.emit('rollDice', roomId);
 }
 
-http.listen(3000, () => console.log('http://localhost:3000'));
+function renderBoard(board) {
+  const boardDiv = document.getElementById('board');
+  boardDiv.innerHTML = '';
+
+  board.forEach((tile, i) => {
+    const div = document.createElement('div');
+    div.className = 'tile';
+    div.innerHTML = `${i}: ${tile.name}`;
+    boardDiv.appendChild(div);
+  });
+}
+
+function renderPlayers(players, turn) {
+  const playersDiv = document.getElementById('players');
+  playersDiv.innerHTML = '';
+
+  players.forEach((p, i) => {
+    const div = document.createElement('div');
+    div.className = 'player';
+    div.innerHTML = `
+      ${i === turn ? '👉 ' : ''}${p.name}<br>
+      位置: ${p.pos}<br>
+      所持金: ${p.money}<br>
+      物件: ${p.properties.join(', ')}
+    `;
+    playersDiv.appendChild(div);
+  });
+}
